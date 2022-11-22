@@ -13,7 +13,7 @@ editor_options:
 ## last filtered to starting 2010-2020, though some QA/QC covers back to 2000. 
 ## Edited by C. Pien on 6 December, 2021 to include some of Nicole's finds
 ## Edited by C. Pien on 11 May, 2021 to include 2021 data
-## Edited by N. Kwan on 21 November, 2022 to include 2022 data
+## Edited by N. Kwan on 21 November, 2022 to include 2022 data & add include some minor qc updates to past data
 
 # Read in data and clean
 ```{r setup, include=FALSE}
@@ -63,9 +63,10 @@ time.na <- filter(sampeffort, is.na(SampleTime) | SampleTime == "")
 date.na <- filter(sampeffort, is.na(Date) | SampleDate == "")
 
 #remove rows with comments that indicate the fyke was not set
-fykeNotSet_ids <- c(3192, 7118, 7641, 8050, 8051, 8361, 9261, 9407, 9408, 9409, 9410, 9485)
+fykeNotSet_ids <- c(3192, 7118, 7641, 8050, 8051, 8361, 9261, 9407, 9408, 9409, 9410, 9485, 9261, 9406, 9407, 9408, 9409, 9410, 9485)
 #search records and remove duplicated/mis-entered samples
-dataEntry_ids <- c(1698, 1858, 1862, 2009, 2477, 2826, 3485, 6971)
+#if duplicates, make sure not to remove the one that has associated fish data
+dataEntry_ids <- c(1698, 1858, 1862, 2009, 2477, 2826, 5028, 6820, 6971, 7065, 7616) #7616 is a "check" following a "pull" and preceding a "set", other entries around it also show short 1-2 sets, so this was most likely a short sampling period with a missing datasheet
 
 f_qaqc1 <- function(fykeNotset_ids, dataEntry_ids) {
 sampeffort %>%
@@ -117,6 +118,9 @@ sampeffort3$SampleTime[sampeffort2$SampleID == 6954] <- "11:00:00"
 sampeffort3$SampleTime[sampeffort2$SampleID == 6431] <- "10:40:00"
 sampeffort3$SampleTime[sampeffort2$SampleID == 7657] <- "10:40:00" # looks like 16:40 but probably 10:40
 
+#change time recorded incorrectly as PM
+sampeffort3$SampleTime[sampeffort3$SampleID == 9252] <- "10:10:00 AM"
+
 # Incorrect Dates
 sampeffort3$Date[sampeffort2$SampleID == 3501] <- as.Date("2009-07-09")
 sampeffort3$SampleDate[sampeffort2$SampleID == 3501] <- "7/9/2009"# Missing entry from 7/8/2008 and other entries in July 2008. It says pulled for the season on 6/27/2008, but there are more data sheets from July in the scanned data sheets. Listed in effort and samp, but for some reason not showing up 
@@ -140,7 +144,6 @@ sampeffort3$SampleDate[sampeffort2$SampleID == 7657] <- "6/28/2017"
 # 2/19 was president's day and fyke was set 2/20 (Tuesday), so guessing screw trap was also set 2/20 and not 2/19. 
 sampeffort3$Date[sampeffort2$SampleID == 7966] <- as.Date("2018-02-20")
 sampeffort3$SampleDate[sampeffort2$SampleID == 7966] <- "2/20/2018"
-
 ```
 
 # Calculate time difference (effort hours)
@@ -156,9 +159,6 @@ sampeffortHours <- sampeffort3 %>%
   group_by(MethodCode) %>%
   mutate(effort.hrs = ifelse(TrapStatus == "Set", 0, as.numeric(difftime(DateTime,lag(DateTime), units = "hours")))) %>%
   arrange(MethodCode, DateTime) 
-
-# remove last date in 1999 used to calculate hours for Jan'20 (sample ID 378)
-# sampeffort.e.2<-sampeffort.e[!(sampeffort.e$SampleID==378),]
 ```
 
 # QA/QC hours
@@ -166,7 +166,7 @@ sampeffortHours <- sampeffort3 %>%
 #search for errors via plotting
 ggplot(sampeffortHours, aes(x=DateTime, y=effort.hrs)) + geom_point()
 
-# limit to doing this starting 2010 for now.
+# limit to doing this starting 2010 - pre 2010 should just focus on monthly data
 qc <- sampeffortHours %>%
   mutate(doweek = wday(DateTime, label= TRUE)) %>%
   select(SampleID, StationCode, Date, doweek, effort.hrs, TrapStatus, SampleTime, everything()) %>%
@@ -193,6 +193,7 @@ qc2$effort.hrs[qc$SampleID == 3131] <- 24 # Added estimate, possibly missing a "
 qc2$effort.hrs[qc$SampleID == 2858] <- 24 # Added estimate, possibly missing a "set" entry for 11/4/2008, but not sure. Don't see a data sheet.
 qc2$effort.hrs[qc$SampleID == 7827] <- 24 # Added estimate, possibly missing a "set" entry for 11/20/2017, but not sure. Don't see a data sheet.
 qc2$effort.hrs[qc$SampleID == 9140] <- 24 # 12/2/2020 PCS not found in database. Needs to be entered (data sheet exists).
+
 # RSTR
 qc2$effort.hrs[qc$SampleID == 3782] <- 3.5 # Not sure if this is right, but estimated
 qc2$effort.hrs[qc$SampleID == 8505] <- 23 # 4/10/2019 STTD not found in database. Needs to be entered (data sheet exists).
@@ -211,6 +212,11 @@ qc3 <- filter(qc2, GearConditionCode !=4)
 # Replot
 ggplot(qc3, aes(x=DateTime, y=effort.hrs)) + geom_point() + facet_grid(~MethodCode)+
   scale_x_datetime(date_breaks = "6 months")
+
+#double check for very high effort and 0's associated with "check" or "pull"
+#3640 seems accurate based on available data and fish catch
+#7639 high effort seems correct based on datasheets and rev counter
+#8524 high effort - comment that fished 2 nights
 ```
 
 # Double check
@@ -231,6 +237,6 @@ sampeffort.hours<- select(qc3, c(StationCode, MethodCode, Date, DateTime, Sample
 
 #write new .csv based on calculated effort
 ```{r}
-write.csv(sampeffort.hours, file = "data_raw/YBFMP_TrapHours_2010_2021.csv", row.names = FALSE)
+write.csv(sampeffort.hours, file = "data_clean/YBFMP_TrapHours_2010_2022.csv", row.names = FALSE)
 ```
 
